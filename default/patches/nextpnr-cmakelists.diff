@@ -1,0 +1,34 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 78c1caa1..0b058c10 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -66,12 +66,20 @@ endif()
+ 
+ set(link_param "")
+ if (STATIC_BUILD)
+-    set(Boost_USE_STATIC_LIBS   ON)
++    set(Boost_USE_STATIC_LIBS ON)
+     if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+     elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
+         if (MSVC)
+             set(CMAKE_CXX_FLAGS_RELEASE "/MT")
+             set(CMAKE_CXX_FLAGS_DEBUG "/MTd")
++	else()
++          set(link_param "-static")
++          if (BUILD_PYTHON)
++            find_package(ZLIB)
++            find_package(EXPAT)
++            find_package(Threads)
++          endif()
++	  set(CMAKE_DL_LIBS "")
+         endif()
+     else()
+         set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".so")
+@@ -182,6 +190,7 @@ else()
+ endif()
+ 
+ find_package(Boost REQUIRED COMPONENTS ${boost_libs})
++message(STATUS ${Boost_LIBRARIES})
+ 
+ if (BUILD_GUI)
+     # Find the Qt5 libraries

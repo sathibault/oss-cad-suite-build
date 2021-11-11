@@ -19,22 +19,22 @@ sources = dict()
 targets = dict()
 architectures = [ 'linux-x64', 'darwin-x64', 'windows-x64', 'linux-arm', 'linux-arm64', 'linux-riscv64', 'darwin-arm64']
 arch_chain = dict({
-	'linux-x64' : None, 
-	'darwin-x64' : 'linux-x64', 
-	'windows-x64' : 'linux-x64', 
-	'linux-arm' : 'darwin-x64', 
-	'linux-arm64' : 'windows-x64', 
+	'linux-x64' : None,
+	'darwin-x64' : 'linux-x64',
+	'windows-x64' : 'linux-x64',
+	'linux-arm' : 'darwin-x64',
+	'linux-arm64' : 'windows-x64',
 	'linux-riscv64' : 'linux-arm64',
 	'darwin-arm64' : 'darwin-x64',
 })
 
 cargo_target = dict({
-	'linux-x64' : 'x86_64-unknown-linux-gnu', 
-	'linux-arm' : 'arm-unknown-linux-gnueabihf', 
-	'linux-arm64' : 'aarch64-unknown-linux-gnu', 
+	'linux-x64' : 'x86_64-unknown-linux-gnu',
+	'linux-arm' : 'arm-unknown-linux-gnueabihf',
+	'linux-arm64' : 'aarch64-unknown-linux-gnu',
 	'linux-riscv64' : 'riscv64gc-unknown-linux-gnu',
-	'windows-x64' : 'x86_64-pc-windows-gnu', 
-	'darwin-x64' : 'x86_64-apple-darwin', 
+	'windows-x64' : 'x86_64-pc-windows-gnu',
+	'darwin-x64' : 'x86_64-apple-darwin',
 	'darwin-arm64' : 'aarch64-apple-darwin',
 })
 
@@ -135,6 +135,18 @@ def getArchitecture():
 		machine = 'arm64'
 	if system == 'windows':
 		machine = 'x64' if platform.architecture()[0] == '64bit' else 'x86'
+	return '{}-{}'.format(system, machine)
+
+def getBuildImageArchitecture():
+	system = getBuildOS()
+	if system == 'windows':
+		# yosys/cross-windows-x64 environment is linux-x64 regardless of system builder.py is running on
+		return 'linux-x64'
+	machine = platform.machine().lower()
+	if machine == 'x86_64':
+		machine = 'x64'
+	elif machine == 'aarch64':
+		machine = 'arm64'
 	return '{}-{}'.format(system, machine)
 
 def loadRules(group):
@@ -264,7 +276,10 @@ def pullCode(target, build_arch, arch, no_update, single):
 		if is_cloning:
 			log_step_triple("[{}] Cloning ".format(s.name), s.location)
 			try:
-				repo.obtain()
+				if s.vcs == 'git':
+					run(['git','clone',s.location,repo_dir])
+				else:
+					repo.obtain()
 			except Exception as ex:
 				log_error("Error while cloning repository {}.")
 		else:
@@ -277,7 +292,7 @@ def pullCode(target, build_arch, arch, no_update, single):
 		if is_cloning or (not no_update):
 			log_step_triple("[{}] Checkout ".format(s.name), s.revision)
 			repo.checkout(s.revision)
-		
+
 		s.hash =  repo.get_revision()
 
 		log_step_triple("[{}] Current revision ".format(s.name), s.hash)
@@ -402,7 +417,7 @@ def executeBuild(target, arch, prefix, build_dir, output_dir, nproc, pack_source
 	if (target.preload):
 		env['PRELOAD'] = 'True'
 
-	scriptfile = tempfile.NamedTemporaryFile()
+	scriptfile = tempfile.NamedTemporaryFile(dir='./')
 	scriptfile.write("set -e -x\n".encode())
 	if (not target.top_package):
 		scriptfile.write(open(os.path.join(target.group, SCRIPTS_ROOT, target.name + ".sh"), 'r').read().encode())
@@ -412,36 +427,42 @@ def executeBuild(target, arch, prefix, build_dir, output_dir, nproc, pack_source
 	scriptfile.flush()
 
 	log_step("Compiling ...")
-	params = ['docker', 
+	params = ['docker',
 		'run', '--rm',
-		'--user', '{}:{}'.format(os.getuid(), os.getgid()),
-		'-v', '/tmp:/tmp',
 		'-v', '{}:/work'.format(cwd),
 		'-w', os.path.join('/work', os.path.relpath(build_dir, os.getcwd())),
 	]
+	if getBuildOS() != 'windows':
+		params += ['--user', '{}:{}'.format(os.getuid(), os.getgid())]
 	for i, j in env.items():
 		if i.endswith('_DIR'):
 			params += ['-e', '{}={}'.format(i, os.path.join('/work', os.path.relpath(j, os.getcwd())))]
 		else:
 			params += ['-e', '{}={}'.format(i, j)]
+	image = 'yosyshq/cross-windows-x64-static' if arch == 'windows-x64' else 'yosyshq/cross-'+ arch + ':1.0'
 	params += [
-		'yosyshq/cross-'+ arch + ':1.0',
-		'bash', scriptfile.name
+		image,
+		'bash', os.path.join('/work', os.path.basename(scriptfile.name))
 	]
+	print(' '.join(params))
 	return run_live(params, cwd=build_dir)
 
 def create_tar(tar_name, directory, cwd):
 	params= [
 		'tar',
-		'--owner=root', '--group=root',
-		'-czf', tar_name, directory
 	]
+	if getBuildOS() == 'windows':
+		params += ['-hczf']
+	else:
+		params += ['--owner=root', '--group=root', '-czf']
+	params += [tar_name, directory]
+
 	code = run_live(params, cwd=cwd)
 	if code!=0:
 		log_error("Script returned error code {}.".format(code))
 
 def create_exe(exe_name, directory, cwd):
-	params= [ 
+	params= [
 		'docker',
 		'run', '--rm',
 		'--user', '{}:{}'.format(os.getuid(), os.getgid()),
@@ -477,7 +498,7 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 					for r in dep.resources:
 						res.add(r)
 			deps += list(res)
-		
+
 		target_build_order = []
 		target_build_order.append(tuple((build_arch,build_target)))
 		total_pos = len(target_build_order) + len(deps)
@@ -491,8 +512,8 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 			if needed:
 				build_info = ""
 				dep_arch = arch
-				if (dep.build_native and build_arch != getArchitecture()):
-					dep_arch = getArchitecture()
+				if (dep.build_native and build_arch != getBuildImageArchitecture()):
+					dep_arch = getBuildImageArchitecture()
 					build_info = " [" + dep_arch + "]"
 				output_dir = os.path.join(OUTPUTS_ROOT, dep_arch, dep.name)
 				hash_file = os.path.join(output_dir, '.hash')
@@ -501,8 +522,15 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 					continue
 				if (os.path.exists(hash_file)):
 					dep.hash = open(hash_file, 'r').read()
+				elif dep.name.endswith('bba'):
+					output_dir = os.path.join(OUTPUTS_ROOT, 'linux-x64', dep.name)
+					hash_file = os.path.join(output_dir, '.hash')
+					if (os.path.exists(hash_file)):
+						dep.hash = open(hash_file, 'r').read()
+					else:
+						log_error("Missing hash file for {} does not exist.".format(dep.name + build_info))
 				else:
-					log_error("Missing hash file for {} does not exist.".format(dep.name + build_info))		
+						log_error("Missing hash file for {} does not exist.".format(dep.name + build_info))
 	else:
 		target_build_order = build_order
 		total_pos = len(target_build_order)
@@ -523,7 +551,7 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 			forceBuild = forceBuild or targets[dep].built
 		hash_file = os.path.join(output_dir, '.hash')
 		if (not forceBuild and os.path.exists(hash_file)):
-			if target.hash == open(hash_file, 'r').read():				
+			if target.hash == open(hash_file, 'r').read():
 				log_info_triple("Step [{:2d}/{:2d}] skipping ".format(pos, total_pos), target.name + build_info)
 				continue
 
@@ -540,7 +568,7 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 		if not target.top_package:
 			log_step("Remove old build dir ...")
 			if os.path.exists(build_dir):
-				shutil.rmtree(build_dir, onerror=removeError)
+				run(['rm','-rf', build_dir])
 			log_step("Creating build dir ...")
 			os.makedirs(build_dir)
 			for s in target.sources:
@@ -568,16 +596,16 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 				needed = False
 			if needed:
 				dep_build_info = ""
-				if (dep.build_native and build_arch != getArchitecture()):
-					dep_build_info = " [" + getArchitecture() + "]"
-					dep_dir = os.path.join(OUTPUTS_ROOT, getArchitecture(), d)
+				if (dep.build_native and build_arch != getBuildImageArchitecture()):
+					dep_build_info = " [" + getBuildImageArchitecture() + "]"
+					dep_dir = os.path.join(OUTPUTS_ROOT, getBuildImageArchitecture(), d)
 				else:
 					dep_dir = os.path.join(OUTPUTS_ROOT, arch, d)
 				if not os.path.exists(dep_dir):
 					log_error("Dependency output directory for {} does not exist.".format(d + dep_build_info))
 				if not target.top_package:
 					log_step_triple("Copy '", d + dep_build_info, "' output to build dir ...")
-					run(['rsync','-a', dep_dir, build_dir])
+					run(['rsync', '-L','-a', dep_dir, build_dir])
 				else:
 					if (dep.package):
 						packages.add(dep.package)
@@ -602,8 +630,8 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 						tools_meta[key] = dict({'files' : dep.tools[key], 'active' : True, 'package' : dep.package })
 					continue
 				if needed:
-					if (dep.build_native and build_arch != getArchitecture()):
-						dep_dir = os.path.join(OUTPUTS_ROOT, getArchitecture(), d)
+					if (dep.build_native and build_arch != getBuildImageArchitecture()):
+						dep_dir = os.path.join(OUTPUTS_ROOT, getBuildImageArchitecture(), d)
 					else:
 						dep_dir = os.path.join(OUTPUTS_ROOT, arch, d)
 					if dep.package:
@@ -620,7 +648,7 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 									package_meta[dep.package]['files'].append(name)
 									if name.startswith("bin/") and arch != 'windows-x64':
 										package_meta[dep.package]['files'].append("libexec" + name[3:])
-			
+
 			metadata = dict({'version' : version_meta, 'packages' : package_meta, 'tools' : tools_meta })
 			with open(os.path.join(output_dir, "yosyshq", "share", "manifest.json"), "w") as manifest_file:
 				json.dump(metadata, manifest_file)
@@ -686,7 +714,7 @@ def buildCode(build_target, build_arch, nproc, force, dry, pack_sources, single,
 		if not target.top_package:
 			log_step("Remove build dir ...")
 			if os.path.exists(build_dir):
-				shutil.rmtree(build_dir, onerror=removeError)
+				run(['rm','-rf', build_dir])
 
 def generateYaml(target, build_arch, write_to_file):
 	log_info_triple("Creating yml for ", target, " [ {} ] architecture ...".format(build_arch))
@@ -698,7 +726,7 @@ def generateYaml(target, build_arch, write_to_file):
 	if build_arch==getArchitecture():
 		yaml_content += "  schedule:\n" \
     					"    - cron: '30 0 * * *'\n\n"
-	else:	
+	else:
 		yaml_content += "  workflow_run:\n" \
 						"    workflows: [ {} ]\n" \
 						"    types:\n" \
@@ -709,7 +737,7 @@ def generateYaml(target, build_arch, write_to_file):
 	for t in build_order:
 		arch = t[0]
 		target = targets[t[1]]
-		
+
 		if arch != build_arch:
 			continue
 
@@ -731,8 +759,8 @@ def generateYaml(target, build_arch, write_to_file):
 			if dep.arch and arch not in dep.arch:
 				needed = False
 			if needed:
-				if (dep.build_native and build_arch != getArchitecture()):
-					name = "{}-{}".format(getArchitecture(), dep.name)
+				if (dep.build_native and build_arch != getBuildImageArchitecture()):
+					name = "{}-{}".format(getBuildImageArchitecture(), dep.name)
 				else:
 					name = "{}-{}".format(arch, dep.name)
 					needs.append(name)
@@ -796,14 +824,14 @@ def generateYaml(target, build_arch, write_to_file):
 			yaml_content +="        if: hashFiles('{}-{}.tgz') != ''\n".format(arch, target.name)
 			yaml_content +="        with:\n"
 			yaml_content +="          allowUpdates: True\n"
-			yaml_content +="          prerelease: True\n"			
+			yaml_content +="          prerelease: True\n"
 			yaml_content +="          omitBody: True\n"
 			yaml_content +="          omitBodyDuringUpdate: True\n"
 			yaml_content +="          omitNameDuringUpdate: True\n"
 			yaml_content +="          tag: bucket-{}\n".format(arch)
 			yaml_content +="          artifacts: \"{}-{}.tgz\"\n".format(arch, target.name)
 			yaml_content +="          token: ${{ secrets.GITHUB_TOKEN }}\n"
-	
+
 	if write_to_file:
 		yaml_file = os.path.join(".github", "workflows", "{}.yml".format(arch))
 		with open(yaml_file, 'w') as f:

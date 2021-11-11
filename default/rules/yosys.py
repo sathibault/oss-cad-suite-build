@@ -4,14 +4,14 @@ SourceLocation(
 	name = 'yosys',
 	vcs = 'git',
 	location = 'https://github.com/YosysHQ/yosys',
-	revision = 'origin/master'
+	revision = 'yosys-0.11'
 )
 
 SourceLocation(
 	name = 'ghdl-yosys-plugin',
 	vcs = 'git',
 	location = 'https://github.com/ghdl/ghdl-yosys-plugin',
-	revision = 'origin/master'
+	revision = '9e11f71e1d06f4cfac0b62d5dbe324fbcae6c44e'
 )
 
 SourceLocation(
