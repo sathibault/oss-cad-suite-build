@@ -1,7 +1,7 @@
 if [ ! -d ghdl ]; then
   git clone https://github.com/ghdl/ghdl
-  # Nov 5, 2021
-  cd ghdl; git checkout fbd853c88b4b1c3008b1b39882ac2b99b6e59460; cd ..
+  # Jan 18, 2022
+  cd ghdl; git checkout 0e46300c437e39747ebe65e6eae5a131477d28c9; cd ..
 fi
 mkdir -p _outputs/windows-x64/ghdl/yosyshq
 cd ghdl; ./configure --prefix=../_outputs/windows-x64/ghdl/yosyshq; cd ..
