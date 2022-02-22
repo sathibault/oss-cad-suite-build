@@ -3,15 +3,16 @@ from src.base import SourceLocation, Target
 SourceLocation(
 	name = 'yosys',
 	vcs = 'git',
-	location = 'https://github.com/YosysHQ/yosys',
-	revision = 'origin/master'
+	location = 'https://github.com/sathibault/yosys.git',
+# ice40-dsp-unextend-bug
+	revision = '7108feca6f5ab1ad5dc5368b16fd54237811e288'
 )
 
 SourceLocation(
 	name = 'ghdl-yosys-plugin',
 	vcs = 'git',
 	location = 'https://github.com/ghdl/ghdl-yosys-plugin',
-	revision = 'origin/master'
+	revision = 'c9b05e481423c55ffcbb856fd5296701f670808c'
 )
 
 SourceLocation(

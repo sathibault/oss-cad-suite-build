@@ -33,6 +33,15 @@ Target(
 )
 
 Target(
+	name = 'nextpnr-gowin',
+	sources = [ 'nextpnr' ],
+	dependencies = [ 'python3', 'nextpnr-bba'],
+	resources = [ 'python3' ],
+	license_file = 'nextpnr/COPYING',
+	package = 'gowin',
+)
+
+Target(
 	name = 'nextpnr-ecp5',
 	sources = [ 'nextpnr' ],
 	dependencies = [ 'python3', 'nextpnr-bba', 'prjtrellis-bba'],
